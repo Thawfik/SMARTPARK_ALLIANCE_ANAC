@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Résolution Incident{% endblock %}
-{% block title_header %}Gestion et Résolution de l'Incident du stand {{ incident.stand }}**{% endblock title_header %}
+{% block title_header %}Gestion et Résolution de l'Incident du parking {{ incident.stand }}**{% endblock title_header %}
 
 {% block content %}
     <div class="row justify-content-center">
@@ -11,7 +11,7 @@
                 </div>
                 <div class="card-body">
 
-                    <p><strong>Stand Affecté :</strong>
+                    <p><strong>Parking Affecté :</strong>
                         <a href="{% url 'stand_detail' incident.stand.pk %}" class="fw-bold">{{ incident.stand.nom_operationnel }}</a>
                     </p>
                     <p><strong>Déclaré le :</strong> {{ incident.date_heure_declaration|date:"d M Y à H:i" }}</p>
