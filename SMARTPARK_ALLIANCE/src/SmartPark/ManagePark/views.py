@@ -15,7 +15,7 @@ from django.db import transaction
 
 from . import serviceAllocation
 from .models import Vol, Avion, Stand, Incident, Historique_allocations
-from .forms import StandForm, IncidentForm, VolUpdateForm, AvionForm, DateFilterForm
+from .forms import StandForm, IncidentForm, VolUpdateForm, AvionForm, DateFilterForm, AvionUpdateForm
 from .serviceAllocation import reallouer_vol_unique, allouer_stands_optimise, liberer_stands_termines
 
 
@@ -62,6 +62,9 @@ class VolCreateView(CreateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['is_update'] = False
+        context['page_title'] = "Création d'un Nouveau Vol"
+        context['button_text'] = "Enregistrer le Vol"
         if self.request.POST:
             context['avion_form'] = AvionForm(self.request.POST)
         else:
@@ -199,10 +202,26 @@ class VolUpdateView(UpdateView):
     model = Vol
     fields = [
         'num_vol_arrive', 'num_vol_depart', 'date_heure_debut_occupation',
-        'date_heure_fin_occupation', 'provenance', 'destination',
+        'date_heure_fin_occupation', 'provenance', 'destination'
     ]
     context_object_name = 'vol'
     template_name = 'vols/vol_create.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['is_update'] = True
+        context['page_title'] = f"Modifier le Vol {self.object.num_vol_arrive}"
+        context['button_text'] = "Sauvegarder les Modifications"
+        vol_instance = context['vol']
+
+        if self.request.POST:
+            # Si la requête est POST, on utilise les données postées
+            context['avion_form'] = AvionUpdateForm(self.request.POST, instance=vol_instance.avion)
+        else:
+            # Sinon, on utilise l'instance existante
+            context['avion_form'] = AvionUpdateForm(instance=vol_instance.avion)
+
+        return context
 
     def get_success_url(self):
         messages.success(self.request, f"Le vol {self.object.num_vol_arrive} a été mis à jour.")
