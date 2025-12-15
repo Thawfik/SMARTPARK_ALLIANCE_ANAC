@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from django.contrib.messages.api import success
 from django.core.exceptions import ObjectDoesNotExist
 from django.shortcuts import render, get_object_or_404
@@ -13,7 +15,7 @@ from django.db import transaction
 
 from . import serviceAllocation
 from .models import Vol, Avion, Stand, Incident, Historique_allocations
-from .forms import StandForm, IncidentForm, VolUpdateForm, AvionForm
+from .forms import StandForm, IncidentForm, VolUpdateForm, AvionForm, DateFilterForm
 from .serviceAllocation import reallouer_vol_unique, allouer_stands_optimise, liberer_stands_termines
 
 
@@ -89,24 +91,27 @@ class VolCreateView(CreateView):
             return self.render_to_response(context)
 
 
-class VolListView(ListView):
-    """Affiche tous les vols actifs (ATTENTE ou ALLOUE)."""
+class BaseVolListView(ListView):
+    """
+    Classe de base pour toutes les vues de liste de vols actifs.
+    Contient la logique commune pour les attributs et la vérification des incidents.
+    """
     model = Vol
     context_object_name = 'vols'
     template_name = 'vols/vol_list.html'
     ordering = ['date_heure_debut_occupation']
 
+    date_context_key = 'Aujourd\'hui'  # Valeur par défaut
+
     def get_queryset(self):
-        return Vol.objects.filter(
-            statut__in=['ATTENTE', 'ALLOUE']
-        ).select_related('avion', 'stand_alloue').prefetch_related(
-            'stand_alloue__incidents_rapportes'
-        )
-    
+        # Laissez cette méthode vide ou définissez la logique de filtrage commune.
+        # Nous allons la laisser pour les classes enfants pour définir la date.
+        raise NotImplementedError("La méthode get_queryset doit être implémentée par une sous-classe.")
+
     def get_context_data(self, **kwargs):
+        """Ajoute l'information des incidents actifs sur les stands alloués."""
         context = super().get_context_data(**kwargs)
-        
-        # ✅ Ajouter l'information des incidents pour chaque vol
+        context['current_date_view'] = self.date_context_key
         vols_avec_incidents = []
         for vol in context['vols']:
             vol.stand_a_incident = False
@@ -116,8 +121,90 @@ class VolListView(ListView):
                     statut__in=['OUVERT', 'ENCOURS']
                 ).exists()
             vols_avec_incidents.append(vol)
-        
+
         context['vols'] = vols_avec_incidents
+        return context
+
+
+# --- La vue pour AUJOURD'HUI ---
+class VolListView(BaseVolListView):
+    """Affiche tous les vols actifs (ATTENTE ou ALLOUE) pour AUJOURD'HUI."""
+    date_context_key = 'Aujourd\'hui'
+
+    def get_queryset(self):
+        date_aujourdhui = date.today()
+        return Vol.objects.filter(
+            statut__in=['ATTENTE', 'ALLOUE'],
+            date_heure_debut_occupation__date=date_aujourdhui
+        ).select_related('avion', 'stand_alloue').prefetch_related(
+            'stand_alloue__incidents_rapportes'
+        )
+
+# --- La vue pour DEMAIN ---
+class VolListTomorrowView(BaseVolListView):
+    """Affiche tous les vols actifs (ATTENTE ou ALLOUE) pour DEMAIN."""
+    date_context_key = 'demain'
+    def get_queryset(self):
+        demain = date.today() + timedelta(days=1)
+        return Vol.objects.filter(
+            statut__in=['ATTENTE', 'ALLOUE'],
+            date_heure_debut_occupation__date=demain
+        ).select_related('avion', 'stand_alloue').prefetch_related(
+            'stand_alloue__incidents_rapportes'
+        )
+
+
+class VolListFutureView(BaseVolListView):
+    """Affiche les vols pour une date spécifique choisie par l'utilisateur."""
+    date_context_key = 'Future'
+
+    # ----------------------------------------------------
+    # Surcharge de dispatch pour gérer la date
+    # ----------------------------------------------------
+    def dispatch(self, request, *args, **kwargs):
+        # La vue future reçoit la date dans les paramètres GET
+        date_param = self.request.GET.get('date_choisie')
+
+        if date_param:
+            try:
+                # Tente de convertir la chaîne en objet date
+                self.date_filtre = date.fromisoformat(date_param)
+            except ValueError:
+                # Si la date n'est pas valide, on retourne à Aujourd'hui
+                return redirect('vol_list')
+        else:
+            # Premier accès à la page (pas de date sélectionnée)
+            self.date_filtre = None
+
+        return super().dispatch(request, *args, **kwargs)
+
+    # ----------------------------------------------------
+    # get_queryset
+    # ----------------------------------------------------
+    def get_queryset(self):
+        if self.date_filtre:
+            return Vol.objects.filter(
+                statut__in=['ATTENTE', 'ALLOUE'],
+                date_heure_debut_occupation__date=self.date_filtre
+            ).select_related('avion', 'stand_alloue').prefetch_related(
+                'stand_alloue__incidents_rapportes'
+            )
+        # Si pas de date sélectionnée, retourne un QuerySet vide
+        return Vol.objects.none()
+
+    # ----------------------------------------------------
+    # get_context_data
+    # ----------------------------------------------------
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        # Ajoute le formulaire et la date sélectionnée
+        context['form'] = DateFilterForm(initial={
+            'date_choisie': self.date_filtre if self.date_filtre else (date.today() + timedelta(days=2))
+        })
+        context['date_filtre'] = self.date_filtre
+        context['date_context_key'] = self.date_context_key
+
         return context
 
 

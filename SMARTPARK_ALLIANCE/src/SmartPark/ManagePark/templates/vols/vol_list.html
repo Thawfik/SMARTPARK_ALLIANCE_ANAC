@@ -4,11 +4,44 @@
 {% block title_header %}Gestion des Vols{% endblock title_header %}
 
 {% block content %}
+    {# 💡 TITRE DYNAMIQUE #}
+    {% if date_context_key == 'Aujourd\'hui' %}
+        <h2>Vols Actifs du Jour</h2>
+    {% elif date_context_key == 'demain' %}
+        <h2>Vols Prévus pour Demain</h2>
+    {% elif date_filtre %}
+        <h2>Vols Prévus pour le {{ date_filtre|date:"d M Y" }}</h2>
+    {% else %}
+        <h2>Sélectionner une Date Future</h2>
+    {% endif %}
+
     <div class="d-flex justify-content-between mb-3">
         <a href="{% url 'vol_create' %}" class="btn btn-success">
             <i class="fas fa-plus"></i> Enregistrer un Nouveau Vol
         </a>
 
+        <div class="d-flex">
+            {# AFFICHER AUJOURD'HUI si l'on n'est PAS sur Aujourd'hui #}
+            {% if date_context_key != 'Aujourd\'hui' %}
+                <a href="{% url 'vol_list' %}" class="btn btn-primary me-2">
+                    <i class="fa-solid fa-calendar-day"></i> Aujourd'hui
+                </a>
+            {% endif %}
+
+            {# AFFICHER DEMAIN si l'on n'est PAS sur Demain #}
+            {% if date_context_key != 'Demain' %}
+                <a href="{% url 'vol_demain' %}" class="btn btn-primary me-2">
+                    <i class="fa-solid fa-calendar-day"></i> Demain
+                </a>
+            {% endif %}
+
+            {# AFFICHER DATE ULTÉRIEURE si l'on n'est PAS sur Date Ultérieure #}
+            {% if date_context_key != 'Future' %}
+                <a href="{% url 'vols_date_future' %}" class="btn btn-secondary me-2">
+                    <i class="fas fa-calendar-alt"></i> Date Ultérieure
+                </a>
+            {% endif %}
+        </div>
         <form method="post" action="{% url 'allouer_stands' %}" class="d-inline">
             {% csrf_token %}
             <button type="submit" class="btn btn-primary">
@@ -16,6 +49,27 @@
             </button>
         </form>
     </div>
+
+    {# ---------------------------------------------------------------------- #}
+    {# SÉLECTEUR DE DATE (Affiché UNIQUEMENT dans la vue 'Future') #}
+    {# ---------------------------------------------------------------------- #}
+    {% if date_context_key == 'Future' %}
+        <div class="card p-3 mb-4 shadow-sm">
+            <h5 class="card-title">Choisir la date à afficher</h5>
+            {# Le formulaire GET soumet la date à la même URL, qui sera traitée par la vue #}
+            <form method="get" action="{% url 'vols_date_future' %}">
+                <div class="d-flex align-items-end">
+                    <div class="me-3">
+                        {{ form.date_choisie.label_tag }}
+                        {{ form.date_choisie }}
+                    </div>
+                    <button type="submit" class="btn btn-info">
+                        <i class="fas fa-search"></i> Afficher
+                    </button>
+                </div>
+            </form>
+        </div>
+    {% endif %}
 
     {% if vols %}
         <div class="table-responsive">
@@ -102,9 +156,13 @@
                 </tbody>
             </table>
         </div>
+    {% elif date_filtre %}
+        <div class="alert alert-info" role="alert">
+            Aucun vol en cours pour le {{ date_filtre|date:"d M Y" }}.
+        </div>
     {% else %}
         <div class="alert alert-info" role="alert">
-            Aucun vol en cours.
+            Veuillez sélectionner une date future.
         </div>
     {% endif %}
 
