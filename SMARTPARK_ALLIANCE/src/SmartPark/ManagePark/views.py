@@ -572,7 +572,7 @@ class libererStands(View):
         if succes:
             messages.success(request, f"✅ {message}")
         else:
-            messages.warning(request, f"⚠️ {message}")
+            messages.warning(request, f" {message}")
 
         return redirect('historique_allocations')
 
@@ -584,4 +584,5 @@ class historique_allocations(ListView):
 
     def get_queryset(self):
         return Historique_allocations.objects.all().order_by('-date_heure_fin_occupation')
+
 

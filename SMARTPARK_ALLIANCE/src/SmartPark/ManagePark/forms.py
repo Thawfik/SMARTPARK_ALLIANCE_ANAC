@@ -1,4 +1,5 @@
 from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Layout, Row, Column, Field
 from django import forms
 from .models import Vol, Avion, Incident, Stand
 from django.utils import timezone
@@ -110,22 +111,32 @@ class VolUpdateForm(forms.ModelForm):
 
         # NOTE : Nous n'incluons pas 'statut' car il doit être géré par les services (Allocation)
 
-        widgets = {
-            'date_heure_debut_occupation': forms.DateTimeInput(
-                attrs={
-                    'type': 'datetime-local',
-                    'class': 'form-control'
-                },
-                format='%Y-%m-%dT%H:%M'
-            ),
-            'date_heure_fin_occupation': forms.DateTimeInput(
-                attrs={
-                    'type': 'datetime-local',
-                    'class': 'form-control'
-                },
-                format='%Y-%m-%dT%H:%M'
-            ),
-        }
+        date_heure_debut_occupation = forms.DateTimeField(
+        label="Heure d'arrivée / Début d'occupation",
+        required=False,
+        input_formats=['%Y-%m-%dT%H:%M'],  # Format HTML5 datetime-local
+        widget=forms.DateTimeInput(
+            attrs={
+                'type': 'datetime-local',
+                'class': 'form-control'
+            },
+            format='%Y-%m-%dT%H:%M'
+        )
+    )
+    
+    date_heure_fin_occupation = forms.DateTimeField(
+        label="Heure de départ / Fin d'occupation",
+        required=False,
+        input_formats=['%Y-%m-%dT%H:%M'],  # Format HTML5 datetime-local
+        widget=forms.DateTimeInput(
+            attrs={
+                'type': 'datetime-local',
+                'class': 'form-control'
+            },
+            format='%Y-%m-%dT%H:%M'
+        )
+    )
+    
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -138,7 +149,17 @@ class VolUpdateForm(forms.ModelForm):
                     continue
                 # Convertir l'objet datetime en string formatée
                 self.initial[field] = self.initial[field].strftime('%Y-%m-%dT%H:%M')
-
     def clean(self):
+        """Validation personnalisée pour vérifier que la fin est après le début."""
         cleaned_data = super().clean()
+        debut = cleaned_data.get('date_heure_debut_occupation')
+        fin = cleaned_data.get('date_heure_fin_occupation')
+        
+        if debut and fin:
+            if fin <= debut:
+                raise forms.ValidationError(
+                    "L'heure de départ doit être postérieure à l'heure d'arrivée."
+                )
+        
         return cleaned_data
+
