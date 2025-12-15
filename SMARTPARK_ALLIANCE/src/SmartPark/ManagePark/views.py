@@ -104,19 +104,18 @@ class BaseVolListView(ListView):
     date_context_key = 'Aujourd\'hui'  # Valeur par défaut
 
     def get_queryset(self):
-        # Laissez cette méthode vide ou définissez la logique de filtrage commune.
-        # Nous allons la laisser pour les classes enfants pour définir la date.
         raise NotImplementedError("La méthode get_queryset doit être implémentée par une sous-classe.")
 
     def get_context_data(self, **kwargs):
         """Ajoute l'information des incidents actifs sur les stands alloués."""
         context = super().get_context_data(**kwargs)
-        context['current_date_view'] = self.date_context_key
+        # ✅ CORRECTION: Utiliser le bon nom de clé
+        context['date_context_key'] = self.date_context_key  # Pas 'current_date_view'
+        
         vols_avec_incidents = []
         for vol in context['vols']:
             vol.stand_a_incident = False
             if vol.stand_alloue:
-                # Vérifier si le stand a un incident actif
                 vol.stand_a_incident = vol.stand_alloue.incidents_rapportes.filter(
                     statut__in=['OUVERT', 'ENCOURS']
                 ).exists()
@@ -126,10 +125,10 @@ class BaseVolListView(ListView):
         return context
 
 
-# --- La vue pour AUJOURD'HUI ---
+# --- Vue pour AUJOURD'HUI ---
 class VolListView(BaseVolListView):
-    """Affiche tous les vols actifs (ATTENTE ou ALLOUE) pour AUJOURD'HUI."""
-    date_context_key = 'Aujourd\'hui'
+    """Affiche tous les vols actifs pour AUJOURD'HUI."""
+    date_context_key = 'Aujourd\'hui'  # ✅ Correspond au template
 
     def get_queryset(self):
         date_aujourdhui = date.today()
@@ -140,10 +139,12 @@ class VolListView(BaseVolListView):
             'stand_alloue__incidents_rapportes'
         )
 
-# --- La vue pour DEMAIN ---
+
+# --- Vue pour DEMAIN ---
 class VolListTomorrowView(BaseVolListView):
-    """Affiche tous les vols actifs (ATTENTE ou ALLOUE) pour DEMAIN."""
-    date_context_key = 'demain'
+    """Affiche tous les vols actifs pour DEMAIN."""
+    date_context_key = 'Demain'  # ✅ CORRECTION: Majuscule pour correspondre au template
+
     def get_queryset(self):
         demain = date.today() + timedelta(days=1)
         return Vol.objects.filter(
@@ -154,33 +155,24 @@ class VolListTomorrowView(BaseVolListView):
         )
 
 
+# --- Vue pour DATE FUTURE ---
 class VolListFutureView(BaseVolListView):
     """Affiche les vols pour une date spécifique choisie par l'utilisateur."""
-    date_context_key = 'Future'
+    date_context_key = 'Future'  # ✅ Correspond au template
 
-    # ----------------------------------------------------
-    # Surcharge de dispatch pour gérer la date
-    # ----------------------------------------------------
     def dispatch(self, request, *args, **kwargs):
-        # La vue future reçoit la date dans les paramètres GET
         date_param = self.request.GET.get('date_choisie')
 
         if date_param:
             try:
-                # Tente de convertir la chaîne en objet date
                 self.date_filtre = date.fromisoformat(date_param)
             except ValueError:
-                # Si la date n'est pas valide, on retourne à Aujourd'hui
                 return redirect('vol_list')
         else:
-            # Premier accès à la page (pas de date sélectionnée)
             self.date_filtre = None
 
         return super().dispatch(request, *args, **kwargs)
 
-    # ----------------------------------------------------
-    # get_queryset
-    # ----------------------------------------------------
     def get_queryset(self):
         if self.date_filtre:
             return Vol.objects.filter(
@@ -189,25 +181,19 @@ class VolListFutureView(BaseVolListView):
             ).select_related('avion', 'stand_alloue').prefetch_related(
                 'stand_alloue__incidents_rapportes'
             )
-        # Si pas de date sélectionnée, retourne un QuerySet vide
         return Vol.objects.none()
 
-    # ----------------------------------------------------
-    # get_context_data
-    # ----------------------------------------------------
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        # Ajoute le formulaire et la date sélectionnée
+        
+        # ✅ Ajouter le formulaire et la date
         context['form'] = DateFilterForm(initial={
             'date_choisie': self.date_filtre if self.date_filtre else (date.today() + timedelta(days=2))
         })
         context['date_filtre'] = self.date_filtre
-        context['date_context_key'] = self.date_context_key
-
+        
         return context
-
-
+    
 class VolUpdateView(UpdateView):
     """Permet de modifier les détails d'un vol existant."""
     model = Vol
@@ -638,15 +624,78 @@ class LancerAllocationView(View):
 class ReallouerVolActionView(View):
     """
     Vue pour réallouer un vol dont le stand a un incident.
+    Gère à la fois l'affichage de la confirmation (GET) et l'action (POST).
     """
-    def post(self, request, vol_pk):
-        # Appeler la fonction de réallocation
-        succes, message = reallouer_vol_unique(vol_pk)
+    template_name = 'vols/vol_reallouer_confirm.html'
+    
+    def get(self, request, pk):
+        """Affiche la page de confirmation."""
+        try:
+            vol = Vol.objects.select_related('stand_alloue', 'avion').get(pk=pk)
+        except Vol.DoesNotExist:
+            messages.error(request, "❌ Vol introuvable.")
+            return redirect('vol_list')
         
-        if succes:
-            messages.success(request, f"✅ {message}")
+        # Vérifier que le vol est alloué
+        if vol.statut != 'ALLOUE' or not vol.stand_alloue:
+            messages.warning(request, f"⚠️ Le vol {vol.num_vol_arrive} n'est pas alloué.")
+            return redirect('vol_list')
+        
+        # Récupérer les incidents actifs du stand
+        incidents_actifs = vol.stand_alloue.incidents_rapportes.filter(
+            statut__in=['OUVERT', 'ENCOURS']
+        )
+        
+        if not incidents_actifs.exists():
+            messages.info(request, f"ℹ️ Le stand {vol.stand_alloue.nom_operationnel} n'a pas d'incident actif.")
+            return redirect('vol_list')
+        
+        context = {
+            'vol': vol,
+            'incidents_actifs': incidents_actifs,
+        }
+        
+        return render(request, self.template_name, context)
+    
+    def post(self, request, pk):
+        """Traite l'action choisie par l'utilisateur."""
+        action = request.POST.get('action')
+        
+        try:
+            vol = Vol.objects.select_related('stand_alloue').get(pk=pk)
+        except Vol.DoesNotExist:
+            messages.error(request, "❌ Vol introuvable.")
+            return redirect('vol_list')
+        
+        if action == 'reallouer':
+            # ✅ Option 1: Réallouer à un autre stand
+            succes, message = reallouer_vol_unique(pk)
+            
+            if succes:
+                messages.success(request, f"✅ {message}")
+            else:
+                messages.warning(request, f"⚠️ {message}")
+        
+        elif action == 'garder':
+            # ✅ Option 2: Garder le parking et résoudre l'incident
+            stand = vol.stand_alloue
+            
+            # Résoudre tous les incidents actifs du stand
+            incidents_resolus = stand.incidents_rapportes.filter(
+                statut__in=['OUVERT', 'ENCOURS']
+            ).update(
+                statut='RESOLU',
+                date_heure_resolution=timezone.now()
+            )
+            
+            messages.success(
+                request,
+                f"✅ {incidents_resolus} incident(s) résolu(s). "
+                f"Le vol {vol.num_vol_arrive} garde le parking {stand.nom_operationnel}."
+            )
+        
         else:
-            messages.warning(request, f"⚠️ {message}")
+            messages.error(request, "❌ Action invalide.")
         
         return redirect('vol_list')
 

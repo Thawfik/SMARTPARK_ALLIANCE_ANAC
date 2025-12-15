@@ -21,7 +21,7 @@ urlpatterns = [
     path('stands/<uuid:pk>/modifier/', views.StandUpdateView.as_view(), name='stand_update'),
     path('stands/<uuid:pk>/supprimer/', views.StandDeleteView.as_view(), name='stand_delete'),
     path('vols/allocation/', views.LancerAllocationView.as_view(), name='allouer_stands'),
-    path('vols/<uuid:vol_pk>/reallouer/', views.ReallouerVolActionView.as_view(), name='reallouer_vol_action'),
+    path('vols/<uuid:pk>/reallouer/', views.ReallouerVolActionView.as_view(), name='reallouer_vol_action'),
 
    
 
