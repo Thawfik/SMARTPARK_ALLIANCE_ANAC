@@ -430,27 +430,57 @@ def handle_incident_impact(stand_instance, request):
 class IncidentCreateView(CreateView):
     """
     Permet de déclarer un nouvel incident sur un Stand.
-    Déclenche une réallocation si des vols futurs sont affectés.
+    ✅ NE modifie PAS le statut des vols alloués.
     """
     model = Incident
     fields = ['stand', 'type_incident', 'description']
     template_name = 'incidents/incident_create.html'
     success_url = reverse_lazy('incident_list')
+    
+    def get_initial(self):
+        """Si un stand_pk est fourni dans l'URL, pré-remplir le formulaire."""
+        initial = super().get_initial()
+        
+        stand_pk = self.kwargs.get('stand_pk')
+        if stand_pk:
+            try:
+                stand = Stand.objects.get(pk=stand_pk)
+                initial['stand'] = stand
+            except Stand.DoesNotExist:
+                messages.error(self.request, "Stand introuvable.")
+        
+        return initial
 
     def form_valid(self, form):
-        # 1. Assurer que le statut est 'OUVERT' lors de la déclaration initiale
+        # 1. Définir le statut et la date de déclaration
         form.instance.statut = 'OUVERT'
-
+        form.instance.date_heure_declaration = timezone.now()
+        
         # 2. Sauvegarde de l'incident
         response = super().form_valid(form)
-
-        # 3. Vérification de l'impact et réallocation
-        # Si un vol était alloué à ce stand, il est déclassé en 'ATTENTE'
-        handle_incident_impact(form.instance.stand, self.request)
-
-        messages.success(self.request, f"L'incident a été déclaré sur le stand {form.instance.stand.nom_operationnel}.")
+        
+        stand = form.instance.stand
+        
+        # 3. ✅ NE PAS MODIFIER LE STATUT DES VOLS
+        # Les vols restent ALLOUÉS, seul le stand passe en HORS_SERVICE (via @property)
+        # Cela permet au bouton "Réallouer" de s'afficher
+        
+        # Vérifier si des vols sont alloués à ce stand
+        vols_alloues = stand.vols_alloues.filter(statut='ALLOUE')
+        
+        if vols_alloues.exists():
+            messages.warning(
+                self.request,
+                f"⚠️ Attention : {vols_alloues.count()} vol(s) alloué(s) au stand {stand.nom_operationnel}. "
+                f"Utilisez le bouton 'Réallouer' pour chaque vol si nécessaire."
+            )
+        
+        messages.success(
+            self.request, 
+            f"✅ Incident déclaré sur le stand {stand.nom_operationnel}."
+        )
+        
         return response
-
 
 class IncidentUpdateView(UpdateView):
     """
